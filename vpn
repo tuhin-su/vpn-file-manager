@@ -1,0 +1,94 @@
+#!/bin/env python3
+import os
+import subprocess
+from pathlib import Path
+from rich.console import Console
+from rich.table import Table
+import argparse
+
+console = Console()
+
+# Define potential VPN directories
+DEFAULT_VPN_DIRECTORY = Path.home() / ".vpn"
+CURRENT_VPN_FILE = Path("./.vpn")
+PARENT_VPN_DIRECTORY = Path("../.vpn")
+
+# Determine the VPN directory to use
+if CURRENT_VPN_FILE.exists():
+    VPN_DIRECTORY = CURRENT_VPN_FILE
+elif PARENT_VPN_DIRECTORY.exists():
+    VPN_DIRECTORY = PARENT_VPN_DIRECTORY
+else:
+    VPN_DIRECTORY = DEFAULT_VPN_DIRECTORY
+
+def list_vpns():
+    """List all available VPN configurations."""
+    table = Table(title="Available VPN Connections")
+    table.add_column("No.", justify="right")
+    table.add_column("File Name", justify="left")
+    table.add_column("Server IP", justify="left")
+
+    vpn_files = list(VPN_DIRECTORY.glob("*.ovpn"))
+    if not vpn_files:
+        console.print("[red]No VPN files found in the directory![/red]")
+        return
+
+    for idx, vpn_file in enumerate(vpn_files, 1):
+        file_name = vpn_file.stem  # Get the file name without the extension
+        server_ip = get_server_ip(vpn_file)
+        table.add_row(str(idx), file_name, server_ip)
+
+    console.print(table)
+
+def get_server_ip(vpn_file):
+    """Extract the server IP from the VPN file."""
+    try:
+        with open(vpn_file, "r") as file:
+            for line in file:
+                if line.startswith("remote"):
+                    return line.split()[1]
+    except Exception as e:
+        return "[red]Error reading file[/red]"
+    return "[yellow]Unknown[/yellow]"
+
+def connect_vpn(vpn_name):
+    """Connect to a VPN using the given configuration file."""
+    vpn_file = VPN_DIRECTORY / f"{vpn_name}.ovpn"
+    if not vpn_file.exists():
+        console.print(f"[red]VPN file '{vpn_name}' not found![/red]")
+        return
+
+    console.print(f"[green]Connecting to VPN '{vpn_name}'...[/green]")
+    try:
+        subprocess.run(f"sudo openvpn --config {vpn_file}", shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Failed to connect to VPN: {e}[/red]")
+
+def disconnect_vpn():
+    """Disconnect the VPN connection."""
+    console.print("[green]Disconnecting VPN...[/green]")
+    try:
+        subprocess.run(["sudo", "pkill", "openvpn"], check=True)
+        console.print("[green]VPN disconnected successfully.[/green]")
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Failed to disconnect VPN: {e}[/red]")
+
+def main():
+    parser = argparse.ArgumentParser(description="Manage OpenVPN connections.")
+    parser.add_argument("--list", action="store_true", help="List all available VPN connections")
+    parser.add_argument("--connect", type=str, help="Connect to a VPN by file name (without .ovpn extension)")
+    parser.add_argument("--disconnect", action="store_true", help="Disconnect from the current VPN")
+
+    args = parser.parse_args()
+
+    if args.list:
+        list_vpns()
+    elif args.connect:
+        connect_vpn(args.connect)
+    elif args.disconnect:
+        disconnect_vpn()
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()
